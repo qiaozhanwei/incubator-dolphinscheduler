@@ -1469,7 +1469,6 @@ public class ProcessService {
      * @return process instance list
      */
     public List<ProcessInstance> queryNeedFailoverProcessInstances(String host){
-
         return processInstanceMapper.queryByHostAndStatus(host, stateArray);
     }
 
@@ -1500,6 +1499,10 @@ public class ProcessService {
     public List<TaskInstance> queryNeedFailoverTaskInstances(String host){
         return taskInstanceMapper.queryByHostAndStatus(host,
                 stateArray);
+    }
+
+    public List<TaskInstance> queryByHostAndStatus(String host,int[] stateArray){
+         return taskInstanceMapper.queryByHostAndStatus(host, stateArray);
     }
 
     /**

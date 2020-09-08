@@ -25,12 +25,19 @@ import org.apache.dolphinscheduler.common.enums.ExecutionStatus;
 import org.apache.dolphinscheduler.common.enums.ZKNodeType;
 import org.apache.dolphinscheduler.common.model.Server;
 import org.apache.dolphinscheduler.common.thread.ThreadUtils;
+import org.apache.dolphinscheduler.common.utils.CollectionUtils;
 import org.apache.dolphinscheduler.common.utils.OSUtils;
 import org.apache.dolphinscheduler.dao.entity.ProcessInstance;
 import org.apache.dolphinscheduler.dao.entity.TaskInstance;
+import org.apache.dolphinscheduler.remote.command.Command;
+import org.apache.dolphinscheduler.remote.command.TaskExecuteAckCommand;
+import org.apache.dolphinscheduler.remote.utils.NamedThreadFactory;
 import org.apache.dolphinscheduler.server.builder.TaskExecutionContextBuilder;
 import org.apache.dolphinscheduler.server.entity.TaskExecutionContext;
 import org.apache.dolphinscheduler.server.utils.ProcessUtils;
+import org.apache.dolphinscheduler.server.worker.cache.ResponceCache;
+import org.apache.dolphinscheduler.server.worker.processor.TaskCallbackService;
+import org.apache.dolphinscheduler.service.bean.SpringApplicationContext;
 import org.apache.dolphinscheduler.service.process.ProcessService;
 import org.apache.dolphinscheduler.service.zk.AbstractZKClient;
 import org.slf4j.Logger;
@@ -38,8 +45,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.apache.dolphinscheduler.common.Constants.*;
 
@@ -63,10 +74,20 @@ public class ZKMasterClient extends AbstractZKClient {
 	@Autowired
 	private ProcessService processService;
 
+	/**
+	 *  task callback service
+	 */
+	@Autowired
+	private TaskCallbackService taskCallbackService;
+
+	private ExecutorService responceTaskExecutor;
+
 	public void start() {
+		responceTaskExecutor = Executors.newSingleThreadExecutor(new NamedThreadFactory("ResponceTaskExecutor"));
 
 		InterProcessMutex mutex = null;
 		try {
+
 			// create distributed lock with the root node path of the lock space as /dolphinscheduler/lock/failover/master
 			String znodeLock = getMasterStartUpLockPath();
 			mutex = new InterProcessMutex(getZkClient(), znodeLock);
@@ -332,16 +353,63 @@ public class ZKMasterClient extends AbstractZKClient {
 		logger.info("start master failover ...");
 
 		List<ProcessInstance> needFailoverProcessInstanceList = processService.queryNeedFailoverProcessInstances(masterHost);
-
-		//updateProcessInstance host is null and insert into command
-		for(ProcessInstance processInstance : needFailoverProcessInstanceList){
-			if(Constants.NULL.equals(processInstance.getHost()) ){
-			    continue;
+		if (CollectionUtils.isNotEmpty(needFailoverProcessInstanceList)){
+			//updateProcessInstance host is null and insert into command
+			for(ProcessInstance processInstance : needFailoverProcessInstanceList){
+				if(Constants.NULL.equals(processInstance.getHost()) ){
+					continue;
+				}
+				processService.processNeedFailoverProcessInstances(processInstance);
 			}
-			processService.processNeedFailoverProcessInstances(processInstance);
 		}
 
+		ResponseTask responseTask = new ResponseTask(processService,masterHost,taskCallbackService);
+		responceTaskExecutor.submit(responseTask);
+
 		logger.info("master failover end");
+	}
+
+	static class ResponseTask implements Runnable {
+
+		private ProcessService processService;
+		private String masterHost;
+		private TaskCallbackService taskCallbackService;
+
+		public ResponseTask(ProcessService processService,
+							String masterHost,
+							TaskCallbackService taskCallbackService){
+			this.processService = processService;
+			this.masterHost = masterHost;
+			this.taskCallbackService = taskCallbackService;
+		}
+
+		@Override
+		public void run() {
+			int[] stateArray = new int[]{ExecutionStatus.SUBMITTED_SUCCESS.ordinal(),
+					ExecutionStatus.RUNNING_EXEUTION.ordinal()};
+			List<TaskInstance> tasks = processService.queryByHostAndStatus(masterHost,stateArray);
+
+			ResponceCache responceCache = ResponceCache.get();
+
+			if (CollectionUtils.isNotEmpty(tasks)){
+				for (TaskInstance task : tasks){
+					ArrayList<Command> commands = responceCache.get(task.getId());
+					if (CollectionUtils.isNotEmpty(commands)){
+						switch (task.getState()){
+							case SUBMITTED_SUCCESS:
+								if (commands.size() == 1){
+									taskCallbackService.sendAck(task.getId(),commands.get(0));
+								}
+							case RUNNING_EXEUTION:
+								if (commands.size() == 2){
+									taskCallbackService.sendResult(task.getId(),commands.get(1));
+								}
+						}
+					}
+					responceCache.remove(task.getId());
+				}
+			}
+		}
 	}
 
 	public InterProcessMutex blockAcquireMutex() throws Exception {

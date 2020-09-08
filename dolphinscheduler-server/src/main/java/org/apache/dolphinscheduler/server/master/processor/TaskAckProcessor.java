@@ -58,15 +58,11 @@ public class TaskAckProcessor implements NettyRequestProcessor {
     private final TaskInstanceCacheManager taskInstanceCacheManager;
 
 
-    /**
-     * processService
-     */
-    private ProcessService processService;
+
 
     public TaskAckProcessor(){
         this.taskResponseService = SpringApplicationContext.getBean(TaskResponseService.class);
         this.taskInstanceCacheManager = SpringApplicationContext.getBean(TaskInstanceCacheManagerImpl.class);
-        this.processService = SpringApplicationContext.getBean(ProcessService.class);
     }
 
     /**
@@ -95,16 +91,6 @@ public class TaskAckProcessor implements NettyRequestProcessor {
                 taskAckCommand.getTaskInstanceId());
 
         taskResponseService.addResponse(taskResponseEvent);
-
-        while (Stopper.isRunning()){
-            TaskInstance taskInstance = processService.findTaskInstanceById(taskAckCommand.getTaskInstanceId());
-
-            if (taskInstance != null && ackStatus.typeIsRunning()){
-                break;
-            }
-            ThreadUtils.sleep(SLEEP_TIME_MILLIS);
-        }
-
     }
 
 }
