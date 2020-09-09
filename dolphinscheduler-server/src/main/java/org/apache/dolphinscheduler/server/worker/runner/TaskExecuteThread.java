@@ -146,8 +146,15 @@ public class TaskExecuteThread implements Runnable {
             responseCommand.setAppIds(task.getAppIds());
         } finally {
             taskExecutionContextCacheManager.removeByTaskInstanceId(taskExecutionContext.getTaskInstanceId());
-            taskCallbackService.sendResult(taskExecutionContext.getTaskInstanceId(), responseCommand.convert2Command());
-            ResponceCache.get().cache(taskExecutionContext.getTaskInstanceId(), responseCommand.convert2Command());
+            try {
+                taskCallbackService.sendResult(taskExecutionContext.getTaskInstanceId(), responseCommand.convert2Command());
+            } catch (Exception e) {
+                try {
+                    taskCallbackService.sendResult(taskExecutionContext.getTaskInstanceId(), responseCommand.convert2Command());
+                } catch (Exception e1) {
+                    logger.error("send result command failed");
+                }
+            }
         }
     }
 

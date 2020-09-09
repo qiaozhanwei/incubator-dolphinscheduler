@@ -111,7 +111,6 @@ public class TaskExecuteProcessor implements NettyRequestProcessor {
         // tell master that task is in executing
         TaskExecuteAckCommand ackCommand = buildAckCommand(taskExecutionContext);
         taskCallbackService.sendAck(taskExecutionContext.getTaskInstanceId(), ackCommand.convert2Command());
-        ResponceCache.get().cache(taskExecutionContext.getTaskInstanceId(), ackCommand.convert2Command());
     }
 
     /**
