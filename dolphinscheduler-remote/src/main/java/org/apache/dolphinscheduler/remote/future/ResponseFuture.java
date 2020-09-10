@@ -162,15 +162,6 @@ public class ResponseFuture {
     }
 
     /**
-     *  release
-     */
-    public void release() {
-        if(this.releaseSemaphore != null){
-            this.releaseSemaphore.release();
-        }
-    }
-
-    /**
      * scan future table
      */
     public static void scanFutureTable(){
@@ -192,6 +183,15 @@ public class ResponseFuture {
             } catch (Throwable ex) {
                 LOGGER.warn("scanFutureTable, execute callback error", ex);
             }
+        }
+    }
+
+    /**
+     *  release
+     */
+    public void release() {
+        if(this.releaseSemaphore != null){
+            this.releaseSemaphore.release();
         }
     }
 

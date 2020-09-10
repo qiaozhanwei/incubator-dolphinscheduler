@@ -322,6 +322,7 @@ public class NettyRemotingClient {
      */
     public Channel getChannel(Host host) {
         Channel channel = channels.get(host);
+
         if(channel != null && channel.isActive()){
             return channel;
         }

@@ -36,7 +36,6 @@ import org.apache.dolphinscheduler.remote.command.TaskExecuteRequestCommand;
 import org.apache.dolphinscheduler.remote.processor.NettyRequestProcessor;
 import org.apache.dolphinscheduler.remote.utils.FastJsonSerializer;
 import org.apache.dolphinscheduler.server.entity.TaskExecutionContext;
-import org.apache.dolphinscheduler.server.worker.cache.ResponceCache;
 import org.apache.dolphinscheduler.server.worker.config.WorkerConfig;
 import org.apache.dolphinscheduler.server.worker.runner.TaskExecuteThread;
 import org.apache.dolphinscheduler.service.bean.SpringApplicationContext;
@@ -110,7 +109,15 @@ public class TaskExecuteProcessor implements NettyRequestProcessor {
     private void doAck(TaskExecutionContext taskExecutionContext){
         // tell master that task is in executing
         TaskExecuteAckCommand ackCommand = buildAckCommand(taskExecutionContext);
-        taskCallbackService.sendAck(taskExecutionContext.getTaskInstanceId(), ackCommand.convert2Command());
+        try {
+            taskCallbackService.sendAck(taskExecutionContext.getTaskInstanceId(), ackCommand.convert2Command());
+        } catch (Exception e) {
+            try {
+                taskCallbackService.sendAck(taskExecutionContext.getTaskInstanceId(), ackCommand.convert2Command());
+            } catch (Exception e1) {
+                logger.error("send ack command failure",e);
+            }
+        }
     }
 
     /**

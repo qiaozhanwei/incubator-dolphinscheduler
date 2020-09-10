@@ -92,7 +92,11 @@ public class TaskKillProcessor implements NettyRequestProcessor {
                 new NettyRemoteChannel(channel, command.getOpaque()));
 
         TaskKillResponseCommand taskKillResponseCommand = buildKillTaskResponseCommand(killCommand,result);
-        taskCallbackService.sendResult(taskKillResponseCommand.getTaskInstanceId(), taskKillResponseCommand.convert2Command());
+        try {
+            taskCallbackService.sendResult(taskKillResponseCommand.getTaskInstanceId(), taskKillResponseCommand.convert2Command());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         taskExecutionContextCacheManager.removeByTaskInstanceId(taskKillResponseCommand.getTaskInstanceId());
     }
 

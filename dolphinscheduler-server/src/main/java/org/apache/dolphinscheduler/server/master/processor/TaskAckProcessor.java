@@ -23,9 +23,7 @@ import org.apache.dolphinscheduler.common.thread.Stopper;
 import org.apache.dolphinscheduler.common.thread.ThreadUtils;
 import org.apache.dolphinscheduler.common.utils.Preconditions;
 import org.apache.dolphinscheduler.dao.entity.TaskInstance;
-import org.apache.dolphinscheduler.remote.command.Command;
-import org.apache.dolphinscheduler.remote.command.CommandType;
-import org.apache.dolphinscheduler.remote.command.TaskExecuteAckCommand;
+import org.apache.dolphinscheduler.remote.command.*;
 import org.apache.dolphinscheduler.remote.processor.NettyRequestProcessor;
 import org.apache.dolphinscheduler.remote.utils.ChannelUtils;
 import org.apache.dolphinscheduler.remote.utils.FastJsonSerializer;
@@ -57,12 +55,16 @@ public class TaskAckProcessor implements NettyRequestProcessor {
      */
     private final TaskInstanceCacheManager taskInstanceCacheManager;
 
-
+    /**
+     * processService
+     */
+    private ProcessService processService;
 
 
     public TaskAckProcessor(){
         this.taskResponseService = SpringApplicationContext.getBean(TaskResponseService.class);
         this.taskInstanceCacheManager = SpringApplicationContext.getBean(TaskInstanceCacheManagerImpl.class);
+        this.processService = SpringApplicationContext.getBean(ProcessService.class);
     }
 
     /**
@@ -73,24 +75,42 @@ public class TaskAckProcessor implements NettyRequestProcessor {
     @Override
     public void process(Channel channel, Command command) {
         Preconditions.checkArgument(CommandType.TASK_EXECUTE_ACK == command.getType(), String.format("invalid command type : %s", command.getType()));
-        TaskExecuteAckCommand taskAckCommand = FastJsonSerializer.deserialize(command.getBody(), TaskExecuteAckCommand.class);
-        logger.info("taskAckCommand : {}", taskAckCommand);
 
-        taskInstanceCacheManager.cacheTaskInstance(taskAckCommand);
+        try {
+            TaskExecuteAckCommand taskExecuteAckCommand = FastJsonSerializer.deserialize(command.getBody(), TaskExecuteAckCommand.class);
+            logger.info("taskExecuteAckCommand : {}", taskExecuteAckCommand);
 
-        String workerAddress = ChannelUtils.toAddress(channel).getAddress();
+            taskInstanceCacheManager.cacheTaskInstance(taskExecuteAckCommand);
 
-        ExecutionStatus ackStatus = ExecutionStatus.of(taskAckCommand.getStatus());
+            String workerAddress = ChannelUtils.toAddress(channel).getAddress();
 
-        // TaskResponseEvent
-        TaskResponseEvent taskResponseEvent = TaskResponseEvent.newAck(ackStatus,
-                taskAckCommand.getStartTime(),
-                workerAddress,
-                taskAckCommand.getExecutePath(),
-                taskAckCommand.getLogPath(),
-                taskAckCommand.getTaskInstanceId());
+            ExecutionStatus ackStatus = ExecutionStatus.of(taskExecuteAckCommand.getStatus());
 
-        taskResponseService.addResponse(taskResponseEvent);
+            // TaskResponseEvent
+            TaskResponseEvent taskResponseEvent = TaskResponseEvent.newAck(ackStatus,
+                    taskExecuteAckCommand.getStartTime(),
+                    workerAddress,
+                    taskExecuteAckCommand.getExecutePath(),
+                    taskExecuteAckCommand.getLogPath(),
+                    taskExecuteAckCommand.getTaskInstanceId());
+
+            taskResponseService.addResponse(taskResponseEvent);
+
+            while (Stopper.isRunning()){
+                TaskInstance taskInstance = processService.findTaskInstanceById(taskExecuteAckCommand.getTaskInstanceId());
+
+                if (taskInstance != null && ackStatus.typeIsRunning()){
+                    TaskAckCommand taskAckCommand = new TaskAckCommand(ExecutionStatus.SUCCESS.getCode());
+                    channel.writeAndFlush(taskAckCommand.convert2Command());
+                    break;
+                }
+                ThreadUtils.sleep(SLEEP_TIME_MILLIS);
+            }
+        }catch (Exception e){
+            logger.error("task ack process error : {}",e);
+            TaskAckCommand taskAckCommand = new TaskAckCommand(ExecutionStatus.FAILURE.getCode());
+            channel.writeAndFlush(taskAckCommand.convert2Command());
+        }
     }
 
 }

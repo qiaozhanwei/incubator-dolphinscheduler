@@ -24,13 +24,11 @@ import org.apache.dolphinscheduler.common.enums.ExecutionStatus;
 import org.apache.dolphinscheduler.common.model.TaskNode;
 import org.apache.dolphinscheduler.common.process.Property;
 import org.apache.dolphinscheduler.common.task.TaskTimeoutParameter;
-import org.apache.dolphinscheduler.common.thread.ThreadUtils;
 import org.apache.dolphinscheduler.common.utils.CommonUtils;
 import org.apache.dolphinscheduler.common.utils.HadoopUtils;
 import org.apache.dolphinscheduler.common.utils.LoggerUtils;
 import org.apache.dolphinscheduler.remote.command.TaskExecuteResponseCommand;
 import org.apache.dolphinscheduler.server.entity.TaskExecutionContext;
-import org.apache.dolphinscheduler.server.worker.cache.ResponceCache;
 import org.apache.dolphinscheduler.server.worker.cache.TaskExecutionContextCacheManager;
 import org.apache.dolphinscheduler.server.worker.cache.impl.TaskExecutionContextCacheManagerImpl;
 import org.apache.dolphinscheduler.server.worker.processor.TaskCallbackService;
@@ -43,6 +41,8 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.util.*;
 import java.util.stream.Collectors;
+
+import static org.apache.dolphinscheduler.common.Constants.SLEEP_TIME_MILLIS;
 
 
 /**
@@ -150,9 +150,10 @@ public class TaskExecuteThread implements Runnable {
                 taskCallbackService.sendResult(taskExecutionContext.getTaskInstanceId(), responseCommand.convert2Command());
             } catch (Exception e) {
                 try {
+                    Thread.sleep(SLEEP_TIME_MILLIS);
                     taskCallbackService.sendResult(taskExecutionContext.getTaskInstanceId(), responseCommand.convert2Command());
                 } catch (Exception e1) {
-                    logger.error("send result command failed");
+                    logger.error("send result command failure",e);
                 }
             }
         }

@@ -21,15 +21,14 @@ package org.apache.dolphinscheduler.server.worker.processor;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
+import org.apache.dolphinscheduler.common.enums.ExecutionStatus;
 import org.apache.dolphinscheduler.common.thread.Stopper;
 import org.apache.dolphinscheduler.common.thread.ThreadUtils;
 import org.apache.dolphinscheduler.common.utils.CollectionUtils;
 import org.apache.dolphinscheduler.remote.NettyRemotingClient;
 import org.apache.dolphinscheduler.remote.command.Command;
 import org.apache.dolphinscheduler.remote.command.TaskResponseCommand;
-import org.apache.dolphinscheduler.remote.command.log.RollViewLogResponseCommand;
 import org.apache.dolphinscheduler.remote.config.NettyClientConfig;
-import org.apache.dolphinscheduler.remote.exceptions.RemotingException;
 import org.apache.dolphinscheduler.remote.exceptions.RemotingTimeoutException;
 import org.apache.dolphinscheduler.remote.future.ResponseFuture;
 import org.apache.dolphinscheduler.remote.utils.FastJsonSerializer;
@@ -103,20 +102,23 @@ public class TaskCallbackService {
      * @return callback channel
      */
     private NettyRemoteChannel getRemoteChannel(int taskInstanceId){
+        Channel newChannel;
         NettyRemoteChannel nettyRemoteChannel = REMOTE_CHANNELS.get(taskInstanceId);
-        if(nettyRemoteChannel == null){
-            throw new IllegalArgumentException("nettyRemoteChannel is empty, should call addRemoteChannel first");
+        if(nettyRemoteChannel != null){
+            if(nettyRemoteChannel.isActive()){
+                return nettyRemoteChannel;
+            }
+            newChannel = nettyRemotingClient.getChannel(nettyRemoteChannel.getHost());
+            if(newChannel != null){
+                return getRemoteChannel(newChannel, nettyRemoteChannel.getOpaque(), taskInstanceId);
+            }
+
         }
-        if(nettyRemoteChannel.isActive()){
-            return nettyRemoteChannel;
-        }
-        Channel newChannel = nettyRemotingClient.getChannel(nettyRemoteChannel.getHost());
-        if(newChannel != null){
-            return getRemoteChannel(newChannel, nettyRemoteChannel.getOpaque(), taskInstanceId);
-        }
+
         logger.warn("original master : {} for task : {} is not reachable, random select master",
                 nettyRemoteChannel.getHost(),
                 taskInstanceId);
+
         Set<String> masterNodes = null;
         int ntries = 0;
         while (Stopper.isRunning()) {
@@ -136,7 +138,7 @@ public class TaskCallbackService {
             for (String masterNode : masterNodes) {
                 newChannel = nettyRemotingClient.getChannel(Host.of(masterNode));
                 if (newChannel != null) {
-                    return getRemoteChannel(newChannel, nettyRemoteChannel.getOpaque(), taskInstanceId);
+                    return getRemoteChannel(newChannel,taskInstanceId);
                 }
             }
             masterNodes = null;
@@ -158,6 +160,12 @@ public class TaskCallbackService {
         return remoteChannel;
     }
 
+    private NettyRemoteChannel getRemoteChannel(Channel newChannel, int taskInstanceId){
+        NettyRemoteChannel remoteChannel = new NettyRemoteChannel(newChannel);
+        addRemoteChannel(taskInstanceId, remoteChannel);
+        return remoteChannel;
+    }
+
     /**
      *  remove callback channels
      * @param taskInstanceId taskInstanceId
@@ -171,9 +179,37 @@ public class TaskCallbackService {
      * @param taskInstanceId taskInstanceId
      * @param command command
      */
-    public void sendAck(int taskInstanceId, Command command){
+    public void sendAck(int taskInstanceId, Command command) throws Exception{
         NettyRemoteChannel nettyRemoteChannel = getRemoteChannel(taskInstanceId);
-        nettyRemoteChannel.writeAndFlush(command);
+        final long opaque = command.getOpaque();
+        final ResponseFuture responseFuture = new ResponseFuture(opaque, ACK_RESPONSE_TIMEOUT, null, null);
+        nettyRemoteChannel.writeAndFlush(command).addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture future) throws Exception {
+                if(future.isSuccess()){
+                    responseFuture.setSendOk(true);
+                    return;
+                } else {
+                    responseFuture.setSendOk(false);
+                }
+                responseFuture.setCause(future.cause());
+                responseFuture.putResponse(null);
+                logger.error("send command {} to host {} failed", command, nettyRemoteChannel.getHost());
+            }
+        });
+
+        /**
+         * sync wait for result
+         */
+        Command response = responseFuture.waitResponse();
+        if(response == null){
+            TaskResponseCommand taskResponseCommand = FastJsonSerializer.deserialize(
+                    response.getBody(), TaskResponseCommand.class);
+            if (taskResponseCommand == null || taskResponseCommand.getStatus() == ExecutionStatus.FAILURE.getCode()){
+                throw new RemotingTimeoutException(nettyRemoteChannel.getHost().toString(),
+                        RESULT_RESPONSE_TIMEOUT, responseFuture.getCause());
+            }
+        }
     }
 
     /**
@@ -208,7 +244,7 @@ public class TaskCallbackService {
         if(response == null){
             TaskResponseCommand taskResponseCommand = FastJsonSerializer.deserialize(
                     response.getBody(), TaskResponseCommand.class);
-            if (taskResponseCommand == null){
+            if (taskResponseCommand == null || taskResponseCommand.getStatus() == ExecutionStatus.FAILURE.getCode()){
                 throw new RemotingTimeoutException(nettyRemoteChannel.getHost().toString(),
                         RESULT_RESPONSE_TIMEOUT, responseFuture.getCause());
             }
