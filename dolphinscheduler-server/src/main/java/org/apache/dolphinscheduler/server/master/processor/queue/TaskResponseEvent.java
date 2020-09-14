@@ -17,6 +17,7 @@
 
 package org.apache.dolphinscheduler.server.master.processor.queue;
 
+import org.apache.dolphinscheduler.common.enums.Event;
 import org.apache.dolphinscheduler.common.enums.ExecutionStatus;
 
 import java.util.Date;
@@ -179,8 +180,4 @@ public class TaskResponseEvent {
         this.event = event;
     }
 
-    public enum Event{
-        ACK,
-        RESULT;
-    }
 }

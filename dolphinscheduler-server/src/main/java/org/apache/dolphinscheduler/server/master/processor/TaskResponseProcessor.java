@@ -26,7 +26,7 @@ import org.apache.dolphinscheduler.dao.entity.TaskInstance;
 import org.apache.dolphinscheduler.remote.command.Command;
 import org.apache.dolphinscheduler.remote.command.CommandType;
 import org.apache.dolphinscheduler.remote.command.TaskExecuteResponseCommand;
-import org.apache.dolphinscheduler.remote.command.TaskResponseCommand;
+import org.apache.dolphinscheduler.remote.command.DBTaskResponseCommand;
 import org.apache.dolphinscheduler.remote.processor.NettyRequestProcessor;
 import org.apache.dolphinscheduler.remote.utils.FastJsonSerializer;
 import org.apache.dolphinscheduler.server.master.cache.TaskInstanceCacheManager;
@@ -100,15 +100,15 @@ public class TaskResponseProcessor implements NettyRequestProcessor {
                 TaskInstance taskInstance = processService.findTaskInstanceById(taskResponseEvent.getTaskInstanceId());
 
                 if (taskInstance != null && responseStatus.typeIsFinished()){
-                    TaskResponseCommand taskResponseCommand = new TaskResponseCommand(ExecutionStatus.SUCCESS.getCode());
+                    DBTaskResponseCommand taskResponseCommand = new DBTaskResponseCommand(ExecutionStatus.SUCCESS.getCode(),taskInstance.getId());
                     channel.writeAndFlush(taskResponseCommand.convert2Command());
                     break;
                 }
                 ThreadUtils.sleep(SLEEP_TIME_MILLIS);
             }
         }catch (Exception e){
-            logger.error("task response process error : {}",e);
-            TaskResponseCommand taskResponseCommand = new TaskResponseCommand(ExecutionStatus.FAILURE.getCode());
+            logger.error("db task response process error : {}",e);
+            DBTaskResponseCommand taskResponseCommand = new DBTaskResponseCommand(ExecutionStatus.FAILURE.getCode(),-1);
             channel.writeAndFlush(taskResponseCommand.convert2Command());
         }
 

@@ -100,7 +100,7 @@ public class TaskAckProcessor implements NettyRequestProcessor {
                 TaskInstance taskInstance = processService.findTaskInstanceById(taskExecuteAckCommand.getTaskInstanceId());
 
                 if (taskInstance != null && ackStatus.typeIsRunning()){
-                    TaskAckCommand taskAckCommand = new TaskAckCommand(ExecutionStatus.SUCCESS.getCode());
+                    DBTaskAckCommand taskAckCommand = new DBTaskAckCommand(ExecutionStatus.SUCCESS.getCode(),taskInstance.getId());
                     channel.writeAndFlush(taskAckCommand.convert2Command());
                     break;
                 }
@@ -108,7 +108,7 @@ public class TaskAckProcessor implements NettyRequestProcessor {
             }
         }catch (Exception e){
             logger.error("task ack process error : {}",e);
-            TaskAckCommand taskAckCommand = new TaskAckCommand(ExecutionStatus.FAILURE.getCode());
+            DBTaskAckCommand taskAckCommand = new DBTaskAckCommand(ExecutionStatus.FAILURE.getCode(),-1);
             channel.writeAndFlush(taskAckCommand.convert2Command());
         }
     }

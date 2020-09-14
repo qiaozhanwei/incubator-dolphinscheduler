@@ -21,17 +21,12 @@ package org.apache.dolphinscheduler.server.worker.processor;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
-import org.apache.dolphinscheduler.common.enums.ExecutionStatus;
 import org.apache.dolphinscheduler.common.thread.Stopper;
 import org.apache.dolphinscheduler.common.thread.ThreadUtils;
 import org.apache.dolphinscheduler.common.utils.CollectionUtils;
 import org.apache.dolphinscheduler.remote.NettyRemotingClient;
 import org.apache.dolphinscheduler.remote.command.Command;
-import org.apache.dolphinscheduler.remote.command.TaskResponseCommand;
 import org.apache.dolphinscheduler.remote.config.NettyClientConfig;
-import org.apache.dolphinscheduler.remote.exceptions.RemotingTimeoutException;
-import org.apache.dolphinscheduler.remote.future.ResponseFuture;
-import org.apache.dolphinscheduler.remote.utils.FastJsonSerializer;
 import org.apache.dolphinscheduler.remote.utils.Host;
 import org.apache.dolphinscheduler.server.registry.ZookeeperRegistryCenter;
 import org.slf4j.Logger;
@@ -63,18 +58,6 @@ public class TaskCallbackService {
      */
     @Autowired
     private ZookeeperRegistryCenter zookeeperRegistryCenter;
-
-
-    /**
-     *  result response time out
-     */
-    private static final long RESULT_RESPONSE_TIMEOUT = 10 * 1000L;
-
-
-    /**
-     * ack response time out
-     */
-    private static final long ACK_RESPONSE_TIMEOUT = 10 * 1000L;
 
     /**
      * netty remoting client
@@ -179,37 +162,9 @@ public class TaskCallbackService {
      * @param taskInstanceId taskInstanceId
      * @param command command
      */
-    public void sendAck(int taskInstanceId, Command command) throws Exception{
+    public void sendAck(int taskInstanceId, Command command){
         NettyRemoteChannel nettyRemoteChannel = getRemoteChannel(taskInstanceId);
-        final long opaque = command.getOpaque();
-        final ResponseFuture responseFuture = new ResponseFuture(opaque, ACK_RESPONSE_TIMEOUT, null, null);
-        nettyRemoteChannel.writeAndFlush(command).addListener(new ChannelFutureListener() {
-            @Override
-            public void operationComplete(ChannelFuture future) throws Exception {
-                if(future.isSuccess()){
-                    responseFuture.setSendOk(true);
-                    return;
-                } else {
-                    responseFuture.setSendOk(false);
-                }
-                responseFuture.setCause(future.cause());
-                responseFuture.putResponse(null);
-                logger.error("send command {} to host {} failed", command, nettyRemoteChannel.getHost());
-            }
-        });
-
-        /**
-         * sync wait for result
-         */
-        Command response = responseFuture.waitResponse();
-        if(response == null){
-            TaskResponseCommand taskResponseCommand = FastJsonSerializer.deserialize(
-                    response.getBody(), TaskResponseCommand.class);
-            if (taskResponseCommand == null || taskResponseCommand.getStatus() == ExecutionStatus.FAILURE.getCode()){
-                throw new RemotingTimeoutException(nettyRemoteChannel.getHost().toString(),
-                        RESULT_RESPONSE_TIMEOUT, responseFuture.getCause());
-            }
-        }
+        nettyRemoteChannel.writeAndFlush(command);
     }
 
     /**
@@ -218,36 +173,17 @@ public class TaskCallbackService {
      * @param taskInstanceId taskInstanceId
      * @param command command
      */
-    public void sendResult(int taskInstanceId, Command command) throws Exception {
+    public void sendResult(int taskInstanceId, Command command){
         NettyRemoteChannel nettyRemoteChannel = getRemoteChannel(taskInstanceId);
-        final long opaque = command.getOpaque();
-        final ResponseFuture responseFuture = new ResponseFuture(opaque, RESULT_RESPONSE_TIMEOUT, null, null);
-        nettyRemoteChannel.writeAndFlush(command).addListener(new ChannelFutureListener() {
+        nettyRemoteChannel.writeAndFlush(command).addListener(new ChannelFutureListener(){
+
             @Override
             public void operationComplete(ChannelFuture future) throws Exception {
                 if(future.isSuccess()){
                     remove(taskInstanceId);
-                    responseFuture.setSendOk(true);
                     return;
-                } else {
-                    responseFuture.setSendOk(false);
                 }
-                responseFuture.setCause(future.cause());
-                responseFuture.putResponse(null);
-                logger.error("send command {} to host {} failed", command, nettyRemoteChannel.getHost());
             }
         });
-        /**
-         * sync wait for result
-         */
-        Command response = responseFuture.waitResponse();
-        if(response == null){
-            TaskResponseCommand taskResponseCommand = FastJsonSerializer.deserialize(
-                    response.getBody(), TaskResponseCommand.class);
-            if (taskResponseCommand == null || taskResponseCommand.getStatus() == ExecutionStatus.FAILURE.getCode()){
-                throw new RemotingTimeoutException(nettyRemoteChannel.getHost().toString(),
-                        RESULT_RESPONSE_TIMEOUT, responseFuture.getCause());
-            }
-        }
     }
 }

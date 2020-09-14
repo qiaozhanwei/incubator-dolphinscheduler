@@ -20,6 +20,7 @@ package org.apache.dolphinscheduler.server.worker.runner;
 import com.alibaba.fastjson.JSONObject;
 import org.apache.commons.collections.MapUtils;
 import org.apache.dolphinscheduler.common.Constants;
+import org.apache.dolphinscheduler.common.enums.Event;
 import org.apache.dolphinscheduler.common.enums.ExecutionStatus;
 import org.apache.dolphinscheduler.common.model.TaskNode;
 import org.apache.dolphinscheduler.common.process.Property;
@@ -29,6 +30,7 @@ import org.apache.dolphinscheduler.common.utils.HadoopUtils;
 import org.apache.dolphinscheduler.common.utils.LoggerUtils;
 import org.apache.dolphinscheduler.remote.command.TaskExecuteResponseCommand;
 import org.apache.dolphinscheduler.server.entity.TaskExecutionContext;
+import org.apache.dolphinscheduler.server.worker.cache.ResponceCache;
 import org.apache.dolphinscheduler.server.worker.cache.TaskExecutionContextCacheManager;
 import org.apache.dolphinscheduler.server.worker.cache.impl.TaskExecutionContextCacheManagerImpl;
 import org.apache.dolphinscheduler.server.worker.processor.TaskCallbackService;
@@ -146,16 +148,8 @@ public class TaskExecuteThread implements Runnable {
             responseCommand.setAppIds(task.getAppIds());
         } finally {
             taskExecutionContextCacheManager.removeByTaskInstanceId(taskExecutionContext.getTaskInstanceId());
-            try {
-                taskCallbackService.sendResult(taskExecutionContext.getTaskInstanceId(), responseCommand.convert2Command());
-            } catch (Exception e) {
-                try {
-                    Thread.sleep(SLEEP_TIME_MILLIS);
-                    taskCallbackService.sendResult(taskExecutionContext.getTaskInstanceId(), responseCommand.convert2Command());
-                } catch (Exception e1) {
-                    logger.error("send result command failure",e);
-                }
-            }
+            ResponceCache.get().cache(taskExecutionContext.getTaskInstanceId(),responseCommand.convert2Command(),Event.RESULT);
+            taskCallbackService.sendResult(taskExecutionContext.getTaskInstanceId(), responseCommand.convert2Command());
         }
     }
 
